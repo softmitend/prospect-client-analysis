@@ -23,10 +23,29 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Comma-separated business categories.",
     )
+    parser.add_argument(
+        "--provider",
+        choices=["playwright", "places_api"],
+        default="playwright",
+        help="Default is Playwright browser scraping and needs no API key.",
+    )
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--max-results-per-category", type=int, default=30)
     parser.add_argument("--min-category-size", type=int, default=1)
     parser.add_argument("--enrich-websites", action="store_true")
+    parser.add_argument(
+        "--headed",
+        action="store_true",
+        help="Show the browser window instead of running headless.",
+    )
+    parser.add_argument(
+        "--browser-channel",
+        default="chrome",
+        help=(
+            "Playwright browser channel. Default 'chrome' uses installed Google Chrome. "
+            "Pass an empty string to use Playwright Chromium."
+        ),
+    )
     parser.add_argument("--output", default="data/prospect_client_analysis.xlsx")
     return parser.parse_args()
 
@@ -35,17 +54,23 @@ def main() -> None:
     load_dotenv()
     args = parse_args()
     api_key = args.api_key or os.getenv("GOOGLE_MAPS_API_KEY")
-    if not api_key:
-        raise SystemExit("Missing API key. Set GOOGLE_MAPS_API_KEY or pass --api-key.")
+
+    if args.provider == "places_api" and not api_key:
+        raise SystemExit(
+            "Missing API key for provider=places_api. Set GOOGLE_MAPS_API_KEY or pass --api-key."
+        )
 
     categories = [x.strip() for x in args.categories.split(",") if x.strip()]
     businesses, summary = run_pipeline(
+        provider=args.provider,
         api_key=api_key,
         location=args.location,
         categories=categories,
         max_results_per_category=args.max_results_per_category,
         enrich_websites=args.enrich_websites,
         min_category_size=args.min_category_size,
+        browser_headless=not args.headed,
+        browser_channel=args.browser_channel or None,
     )
 
     output = Path(args.output)
