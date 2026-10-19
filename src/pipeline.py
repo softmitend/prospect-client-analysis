@@ -7,6 +7,7 @@ import pandas as pd
 from .analysis import summarize_categories
 from .enrichment import WebsiteEnricher
 from .etl import merge_enrichment, places_to_frame, preprocess_businesses
+from .google_maps_browser import GoogleMapsPlaywrightScraper
 from .google_places import GooglePlacesClient
 from .ml import add_ml_features
 
@@ -20,20 +21,45 @@ def _noop_progress(stage: str, current: int, total: int) -> None:
 
 def run_pipeline(
     *,
-    api_key: str,
     location: str,
     categories: list[str],
+    provider: str = "playwright",
+    api_key: str | None = None,
     max_results_per_category: int = 40,
     enrich_websites: bool = True,
     min_category_size: int = 1,
     language_code: str = "id",
     region_code: str = "ID",
+    browser_headless: bool = True,
+    browser_channel: str | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    progress = progress_callback or _noop_progress
+    """Run collection, preprocessing, enrichment, ML and category analytics.
 
-    client = GooglePlacesClient(api_key=api_key)
-    progress("google_places", 0, len(categories))
+    provider="playwright" is the no-API-key default and automates the public
+    Google Maps web UI. provider="places_api" keeps the structured Google
+    Places API path available when a billing-enabled API key exists.
+    """
+    progress = progress_callback or _noop_progress
+    normalized_provider = provider.strip().lower()
+
+    if normalized_provider in {"playwright", "browser", "google_maps_browser"}:
+        client = GoogleMapsPlaywrightScraper(
+            headless=browser_headless,
+            browser_channel=browser_channel or None,
+        )
+        collection_stage = "google_maps_browser"
+    elif normalized_provider in {"places_api", "google_places", "api"}:
+        if not api_key:
+            raise ValueError("Google Maps API key is required when provider='places_api'.")
+        client = GooglePlacesClient(api_key=api_key)
+        collection_stage = "google_places"
+    else:
+        raise ValueError(
+            "Unknown provider. Use 'playwright' or 'places_api'."
+        )
+
+    progress(collection_stage, 0, len(categories))
     raw = client.collect_categories(
         location=location,
         categories=categories,
@@ -41,7 +67,7 @@ def run_pipeline(
         language_code=language_code,
         region_code=region_code,
     )
-    progress("google_places", len(categories), len(categories))
+    progress(collection_stage, len(categories), len(categories))
 
     businesses = preprocess_businesses(places_to_frame(raw))
 
