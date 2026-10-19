@@ -1,52 +1,55 @@
 # Prospect Client Analysis
 
-A Google Maps / Google Places business intelligence pipeline for finding where website adoption is high or low across business categories, enriching public contact information, and exploring the results in a Streamlit dashboard.
+Business-intelligence pipeline for collecting public Google Maps business information, measuring website adoption by category, enriching public contact data, and exploring the results in Streamlit.
 
-## What this project does
+The default collector now uses **Playwright browser automation** and does **not require a Google Maps API key or billing account**. Google Places API (New) remains available as an optional structured provider.
 
-The pipeline is deliberately split into data-engineering and ML stages:
+## Pipeline
 
-1. **Extract** business records from Google Places API (New) using Text Search.
-2. **Website enrichment** from the business' official website for public email, WhatsApp links/numbers, phone links, meta description, and basic contact/about pages.
-3. **Preprocess** strings, URLs, phone numbers, opening hours, missing values, and deduplicate records.
-4. **Transform / ETL** into a stable business schema with quality flags and derived digital-presence features.
-5. **ML**:
-   - TF-IDF + MiniBatchKMeans clustering to group semantically similar business records/categories.
-   - Isolation Forest to flag unusual/incomplete records for quality review.
+1. **Extract** business listings from the public Google Maps web UI with Playwright, or optionally from Places API (New).
+2. **Preprocess** names, categories, URLs, phone numbers, addresses, opening hours, missing values, and duplicates.
+3. **ETL** into a stable business-level schema.
+4. **Website enrichment** for public email, WhatsApp links/numbers, website phone, and meta description.
+5. **ML-assisted analysis**:
+   - TF-IDF + MiniBatchKMeans for semantic grouping.
+   - Isolation Forest for unusual/incomplete-record detection.
 6. **Analytics**:
-   - businesses per category,
+   - total businesses per category,
    - businesses with/without websites,
    - website adoption percentage,
    - Wilson 95% confidence interval,
    - email/WhatsApp/phone coverage,
    - digital presence score.
-7. **Dashboard** in Streamlit with category ranking, business-level tables, filters, data-quality views, and CSV/XLSX export.
-8. **Google Colab notebook** for running and inspecting the same pipeline interactively.
+7. **Streamlit dashboard** with filters, ranked category tables, data-quality view, and CSV/XLSX export.
+8. **Google Colab notebook** using the same pipeline.
 
-> Important: the ranking is based on the businesses returned for the configured queries. Google Text Search is ranked and capped, so this is a **sample-based market analysis, not a census of every business in a city**.
+Website-adoption ranking itself is deterministic analytics, not machine learning. ML is only used where it actually adds value.
 
-## Why this is not "ML scraping"
+## Data collected
 
-Website-adoption ranking itself is an aggregation problem, not a machine-learning problem. ML is used only where it adds something useful: grouping messy business/category text and anomaly detection. The core collection, preprocessing, ETL, and percentage analysis remain deterministic and auditable.
+The browser collector attempts to collect these public fields from Google Maps:
 
-## Data source
-
-The default provider uses **Google Places API (New)** instead of scraping Google Maps HTML. This is more stable and gives structured fields such as:
-
-- name
-- primary category / types
+- business name
+- business category
 - website
-- national / international phone
+- phone
 - address
-- location
-- opening hours
-- rating / review count
+- opening-hours summary
+- rating
+- review count
 - business status
+- latitude / longitude when present in the Maps URL
 - Google Maps URL
 
-Email and WhatsApp are **not direct Google Places fields**. When enrichment is enabled, the pipeline visits the official website (when one exists) and extracts public contact details from the homepage plus a small number of likely contact/about pages.
+Email and WhatsApp usually are not displayed directly by Google Maps. When website enrichment is enabled, the pipeline visits the official business website and looks for public `mailto:`, `tel:`, `wa.me`, WhatsApp API links, metadata, and a small number of likely contact/about pages.
 
-The code intentionally does not attempt CAPTCHA bypassing, account automation, or anti-bot evasion.
+## Important browser-scraping limitation
+
+Google Maps is a dynamic website. Browser scraping is inherently more fragile than the official API because selectors, visible labels, and page structure can change.
+
+The scraper intentionally **does not** bypass CAPTCHA, unusual-traffic pages, authentication barriers, or anti-bot controls. If Google shows one of those pages, the run stops with an explanatory error.
+
+Use conservative result counts while testing. Do not treat the returned search results as a complete census of every business in a region.
 
 ## Repository structure
 
@@ -55,87 +58,143 @@ The code intentionally does not attempt CAPTCHA bypassing, account automation, o
 ├── app.py
 ├── bin/
 │   └── run_pipeline.py
-├── data/
-│   └── .gitkeep
 ├── notebooks/
 │   └── prospect_client_analysis_colab.ipynb
 ├── src/
-│   ├── __init__.py
 │   ├── analysis.py
 │   ├── enrichment.py
 │   ├── etl.py
 │   ├── export.py
+│   ├── google_maps_browser.py
 │   ├── google_places.py
 │   ├── ml.py
 │   └── pipeline.py
 ├── .env.example
-├── .gitignore
 └── requirements.txt
 ```
 
-## Quick start
+## Windows quick start
 
-### 1. Create a Google Maps Platform key
-
-Enable **Places API (New)** in your Google Cloud project and create an API key. Restrict the key appropriately.
-
-Copy `.env.example` to `.env`:
+From Git Bash / PowerShell inside the repository:
 
 ```bash
-cp .env.example .env
+py -m venv .venv
 ```
 
-Then set:
-
-```env
-GOOGLE_MAPS_API_KEY=your_key_here
-```
-
-### 2. Install
+Git Bash:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+source .venv/Scripts/activate
 ```
 
-### 3. Run Streamlit
+PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Install Python dependencies:
 
 ```bash
-streamlit run app.py
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-### 4. CLI / bin usage
+### Browser choice A: use installed Google Chrome
+
+This is the easiest option on a normal Windows machine. The Streamlit dashboard defaults to the Playwright `chrome` channel, so no Google API key is needed.
+
+### Browser choice B: Playwright Chromium
+
+Install it once:
+
+```bash
+python -m playwright install chromium
+```
+
+Then choose **Playwright Chromium** in the dashboard.
+
+## Run Streamlit
+
+```bash
+python -m streamlit run app.py
+```
+
+In the sidebar choose:
+
+```text
+Google Maps browser scraper (Playwright) — no API key
+```
+
+Then configure location, business categories, max results per category, and whether website enrichment should run.
+
+## CLI / bin usage without API key
+
+Using installed Google Chrome:
 
 ```bash
 python bin/run_pipeline.py \
+  --provider playwright \
+  --browser-channel chrome \
   --location "Banyuwangi, East Java, Indonesia" \
   --categories "restaurant,cafe,dentist,lawyer,beauty salon,car repair" \
-  --max-results-per-category 40 \
+  --max-results-per-category 30 \
   --enrich-websites \
   --output data/banyuwangi_businesses.xlsx
 ```
 
-CSV output is also supported by changing the extension to `.csv`.
+To watch the browser while debugging, add:
 
-## Streamlit workflow
+```text
+--headed
+```
 
-The dashboard supports two paths:
+To use Playwright's bundled Chromium instead of installed Chrome:
 
-- **Collect live data** from Google Places.
-- **Upload CSV/XLSX** from an earlier run and analyze it without calling the API again.
+```bash
+python -m playwright install chromium
+python bin/run_pipeline.py \
+  --provider playwright \
+  --browser-channel "" \
+  --location "Banyuwangi, East Java, Indonesia" \
+  --categories "restaurant,cafe,dentist"
+```
 
-Recommended workflow:
+## Optional Google Places API provider
 
-1. Start with 8-20 categories and one city/area.
-2. Use 20-40 results per category while validating the pipeline.
-3. Turn on website enrichment only when you need email / WhatsApp / website descriptions because it creates additional requests to third-party websites.
-4. Inspect the Data Quality tab.
-5. Export the cleaned business table and category summary.
+The old structured API path is still available if you later obtain a billing-enabled key:
 
-## Category ranking
+```bash
+python bin/run_pipeline.py \
+  --provider places_api \
+  --api-key YOUR_KEY \
+  --location "Banyuwangi, East Java, Indonesia" \
+  --categories "restaurant,cafe,dentist"
+```
 
-The main summary includes:
+You can also put it in `.env`:
+
+```env
+GOOGLE_MAPS_API_KEY=your_optional_key_here
+```
+
+The API key is **not required** for the default Playwright path.
+
+## Streamlit dashboard
+
+The dashboard supports:
+
+- Playwright Google Maps browser collection without an API key
+- optional Google Places API collection
+- CSV/XLSX upload for previously collected data
+- category ranking from highest to lowest website adoption
+- website/no-website filtering
+- business-level contact table
+- ETL/ML quality view
+- CSV export
+- Excel workbook export with `businesses` and `category_summary` sheets
+
+## Category summary fields
 
 | field | meaning |
 |---|---|
@@ -151,56 +210,20 @@ The main summary includes:
 | `avg_rating` | mean rating |
 | `median_review_count` | median review volume |
 
-Use `min_category_size` in the dashboard to avoid ranking categories with tiny samples above categories with meaningful coverage.
-
-## ETL schema
-
-The transformed business table keeps core source fields and adds:
-
-- `category`
-- `website_present`
-- `phone_present`
-- `email_present`
-- `whatsapp_present`
-- `opening_hours_text`
-- `website_domain`
-- `public_email`
-- `whatsapp_number`
-- `website_meta_description`
-- `business_description`
-- `digital_presence_score`
-- `ml_cluster`
-- `ml_anomaly`
-- `source_query`
-
-## Notes on contact enrichment
-
-The website enricher:
-
-- uses a normal browser-like User-Agent,
-- only follows the same host,
-- only checks a small set of likely pages,
-- has short timeouts,
-- sleeps between requests,
-- does not execute JavaScript,
-- extracts only public contact data.
-
-Some businesses expose WhatsApp or email only via JavaScript/social platforms, so those fields may remain empty even when the business uses them.
-
-## Cost and sampling caveats
-
-Google Places data fields are billed according to Google Maps Platform SKU rules. In particular, website, phone, rating, review count, and opening-hours fields may affect the SKU used. Keep the field mask constrained and start with small result limits.
-
-Text Search (New) is not designed as a complete directory export. The API currently limits the number of results available across pages for a query. If you need stronger geographic coverage, split the study into explicit sub-areas or grid cells and deduplicate by Place ID.
+Use the minimum category sample-size filter before interpreting rankings. A category with two records and 100% website adoption is not stronger evidence than a category with dozens of records.
 
 ## Google Colab
 
 Open:
 
-`notebooks/prospect_client_analysis_colab.ipynb`
+```text
+notebooks/prospect_client_analysis_colab.ipynb
+```
 
-The notebook installs dependencies, clones this repository, securely prompts for the API key, runs the same pipeline, shows category rankings, and exports CSV/XLSX files.
+The notebook installs dependencies and Playwright Chromium, runs the browser-based collector without a Google API key, reads the generated workbook back into pandas, displays the ranking and business table, and plots website adoption by category.
+
+Colab runs headless in a cloud environment, so browser scraping there may encounter more blocking than running the dashboard locally.
 
 ## Responsible use
 
-Use public business data for legitimate research, market analysis, and prospecting. Do not use this project to harass businesses, bypass access controls, spam contacts, or evade platform restrictions.
+Use public business information for legitimate research, market analysis, and prospecting. Do not use this project to bypass access controls, evade CAPTCHA/anti-bot systems, harass businesses, or automate spam.
