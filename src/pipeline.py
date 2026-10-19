@@ -55,9 +55,7 @@ def run_pipeline(
         client = GooglePlacesClient(api_key=api_key)
         collection_stage = "google_places"
     else:
-        raise ValueError(
-            "Unknown provider. Use 'playwright' or 'places_api'."
-        )
+        raise ValueError("Unknown provider. Use 'playwright' or 'places_api'.")
 
     progress(collection_stage, 0, len(categories))
     raw = client.collect_categories(
@@ -68,6 +66,14 @@ def run_pipeline(
         region_code=region_code,
     )
     progress(collection_stage, len(categories), len(categories))
+
+    if not raw:
+        hint = (
+            " No businesses were collected. If you are using Playwright, try turning "
+            "off headless mode to inspect the page, reduce the number of categories, "
+            "and confirm that Google Maps search results are loading normally."
+        )
+        raise RuntimeError(hint.strip())
 
     businesses = preprocess_businesses(places_to_frame(raw))
 
