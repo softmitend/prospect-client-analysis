@@ -46,18 +46,52 @@ st.set_page_config(
 
 st.title("📍 Prospect Client Analysis")
 st.caption(
-    "Google Places → preprocessing → ETL → ML-assisted grouping/quality checks → "
+    "Google Maps → preprocessing → ETL → ML-assisted grouping/quality checks → "
     "website-adoption analysis → CSV/XLSX."
 )
 
 with st.sidebar:
     st.header("Collection")
-    api_key = st.text_input(
-        "Google Maps API key",
-        value=os.getenv("GOOGLE_MAPS_API_KEY", ""),
-        type="password",
-        help="Places API (New) must be enabled.",
+    provider_label = st.selectbox(
+        "Data source",
+        [
+            "Google Maps browser scraper (Playwright) — no API key",
+            "Google Places API (optional)",
+        ],
     )
+    provider = "playwright" if provider_label.startswith("Google Maps browser") else "places_api"
+
+    api_key = ""
+    browser_headless = True
+    browser_channel = None
+
+    if provider == "places_api":
+        api_key = st.text_input(
+            "Google Maps API key",
+            value=os.getenv("GOOGLE_MAPS_API_KEY", ""),
+            type="password",
+            help="Places API (New) must be enabled and billing must be configured.",
+        )
+    else:
+        st.info(
+            "No Google API key is needed. This automates the public Google Maps UI, "
+            "so collection is slower and can break when the UI changes."
+        )
+        browser_headless = st.toggle(
+            "Run browser headless",
+            value=True,
+            help="Turn this off while debugging to watch the browser work.",
+        )
+        browser_choice = st.selectbox(
+            "Browser",
+            ["Google Chrome", "Playwright Chromium"],
+            help=(
+                "Google Chrome is convenient on Windows. Playwright Chromium requires "
+                "`python -m playwright install chromium` once."
+            ),
+        )
+        browser_channel = "chrome" if browser_choice == "Google Chrome" else None
+
     location = st.text_input(
         "Location",
         value="Banyuwangi, East Java, Indonesia",
@@ -68,10 +102,11 @@ with st.sidebar:
         height=260,
         help="One category per line.",
     )
+    max_limit = 100 if provider == "playwright" else 60
     max_results = st.slider(
         "Max results / category",
         min_value=5,
-        max_value=60,
+        max_value=max_limit,
         value=30,
         step=5,
     )
@@ -100,8 +135,8 @@ if "summary" not in st.session_state:
 
 if run_live:
     categories = [line.strip() for line in category_text.splitlines() if line.strip()]
-    if not api_key:
-        st.error("Google Maps API key is required for live collection.")
+    if provider == "places_api" and not api_key:
+        st.error("Google Maps API key is required only for the Places API provider.")
     elif not categories:
         st.error("Add at least one business category.")
     else:
@@ -112,8 +147,9 @@ if run_live:
             if total <= 0:
                 return
             fraction = min(1.0, current / total)
-            if stage == "google_places":
-                status.write("Collecting Google Places data…")
+            if stage in {"google_places", "google_maps_browser"}:
+                source_name = "Google Maps browser" if stage == "google_maps_browser" else "Google Places"
+                status.write(f"Collecting {source_name} data…")
                 progress_bar.progress(min(0.45, fraction * 0.45))
             else:
                 status.write(f"Enriching websites… {current}/{total}")
@@ -121,12 +157,15 @@ if run_live:
 
         try:
             businesses, summary = run_pipeline(
-                api_key=api_key,
+                provider=provider,
+                api_key=api_key or None,
                 location=location,
                 categories=categories,
                 max_results_per_category=max_results,
                 enrich_websites=enrich_websites,
                 min_category_size=int(min_category_size),
+                browser_headless=browser_headless,
+                browser_channel=browser_channel,
                 progress_callback=progress,
             )
             st.session_state.businesses = businesses
@@ -310,6 +349,6 @@ c3.download_button(
 )
 
 st.caption(
-    "Interpret rankings with sample size and confidence intervals. "
-    "Text Search results are ranked samples, not a full business census."
+    "Browser-scraped Google Maps results are a ranked sample, not a complete business census. "
+    "Selectors and visible fields may change when Google Maps changes its UI."
 )
