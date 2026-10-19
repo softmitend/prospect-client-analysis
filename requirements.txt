@@ -1,0 +1,9 @@
+streamlit>=1.41
+pandas>=2.2
+numpy>=1.26
+requests>=2.32
+beautifulsoup4>=4.12
+scikit-learn>=1.5
+openpyxl>=3.1
+python-dotenv>=1.0
+tldextract>=5.1
